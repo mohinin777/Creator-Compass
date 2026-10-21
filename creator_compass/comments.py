@@ -1,4 +1,4 @@
-"""Bounded, revision-keyed sampling of real comments with explicit scan coverage."""
+"""Full-split indexing by default, plus optional bounded streaming samples."""
 from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
@@ -13,6 +13,7 @@ from huggingface_hub import HfApi
 
 from creator_compass.data import DATASET_ID
 from creator_compass.discovery import video_url
+from creator_compass.comment_index import index_path, build_index, query_index
 
 
 @dataclass
@@ -21,7 +22,7 @@ class CommentSample:
     split: str
     video_ids: list[str]
     per_video: int
-    max_scan: int
+    max_scan: int | None
     scanned: int
     stop_reason: str
     records: list[dict]
@@ -72,11 +73,28 @@ def sample_records(records: Iterable[dict], video_ids: list[str], per_video: int
 
 
 def load_comment_sample(video_ids: list[str], per_video: int = 20,
-                        max_scan: int = 100_000, cache_dir: str | None = None) -> CommentSample:
+                        max_scan: int | None = None, cache_dir: str | None = None,
+                        progress=None) -> CommentSample:
+    if not 1 <= len(set(video_ids)) <= 30 or any(video_url(i) is None for i in video_ids):
+        raise ValueError('Choose 1–30 valid observed video IDs.')
+    if not 1 <= per_video <= 50:
+        raise ValueError('Choose 1–50 retained comments per video.')
     # Pin data and cache identity to an actual Hub commit, not the mutable main ref.
     revision = HfApi().dataset_info(DATASET_ID).sha
     if not revision:
         raise ValueError('Could not resolve dataset revision.')
+    if max_scan is None:
+        directory = cache_dir or str(Path.cwd() / '.cache' / 'comment_samples')
+        path = index_path(directory, revision)
+        if not path.exists():
+            dataset = load_dataset(DATASET_ID, 'comments', revision=revision, streaming=True)
+            splits = list(dataset.keys())
+            if not splits:
+                raise ValueError('The comments configuration exposes no splits.')
+            path = build_index(dataset[splits[0]], directory, revision, splits[0], progress)
+        split, scanned, rows = query_index(path, video_ids, per_video, revision)
+        return CommentSample(revision, split, sorted(set(video_ids)), per_video, None,
+                             scanned, 'full split indexed', rows)
     key_data = [1, DATASET_ID, revision, sorted(set(video_ids)), per_video, max_scan]
     key = sha256(json.dumps(key_data).encode()).hexdigest()
     path = Path(cache_dir) / f'{key}.json' if cache_dir else None

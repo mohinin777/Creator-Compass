@@ -2,8 +2,7 @@
 from collections import defaultdict
 import json
 import os
-from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.error import HTTPError
 
 CATEGORIES = [
@@ -13,6 +12,17 @@ CATEGORIES = [
     'General feedback / other',
 ]
 UNREVIEWED = 'Unreviewed'
+OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions'
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def urlopen(request, timeout):
+    # Never forward the Authorization header through a provider redirect.
+    return build_opener(_NoRedirect()).open(request, timeout=timeout)
 
 
 def validate_classifications(rows: list[dict], comments: list[dict]) -> list[dict]:
@@ -56,19 +66,15 @@ def llm_configured() -> bool:
 
 
 def classify_comments(comments: list[dict]) -> list[dict]:
-    """OpenAI-compatible Chat Completions with strict JSON schema.
+    """OpenAI Chat Completions with strict JSON schema and a fixed destination.
 
-    Defaults to OpenAI gpt-4.1-nano; overrides must support strict JSON schema.
+    Defaults to gpt-4.1-nano; model overrides must support strict JSON schema.
     Only bounded comment text and IDs leave the machine, never creator profiles.
     """
     if not llm_configured():
         raise ValueError('Configure LLM_API_KEY2 securely in environment settings.')
     if not 1 <= len(comments) <= 100:
         raise ValueError('Classify 1–100 sampled comments per operation.')
-    base = os.environ.get('LLM_BASE_URL', 'https://api.openai.com/v1').rstrip('/')
-    parsed = urlsplit(base)
-    if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise ValueError('LLM_BASE_URL must be a credential-free HTTPS API base URL.')
     schema = {'type': 'object', 'properties': {'results': {
         'type': 'array', 'items': {'type': 'object', 'properties': {
             'comment_id': {'type': 'string'},
@@ -85,7 +91,7 @@ def classify_comments(comments: list[dict]) -> list[dict]:
             {'role': 'user', 'content': json.dumps(supplied)},
         ], 'response_format': {'type': 'json_schema', 'json_schema': {
             'name': 'comment_categories', 'strict': True, 'schema': schema}}}
-        request = Request(base + '/chat/completions', data=json.dumps(payload).encode(), headers={
+        request = Request(OPENAI_ENDPOINT, data=json.dumps(payload).encode(), headers={
             'Authorization': 'Bearer ' + os.environ['LLM_API_KEY2'], 'Content-Type': 'application/json'})
         try:
             with urlopen(request, timeout=60) as response:

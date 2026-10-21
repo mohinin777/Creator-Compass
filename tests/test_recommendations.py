@@ -52,6 +52,7 @@ class RecommendationUITests(unittest.TestCase):
             {'video_id': 'aaaaaaaaaaa', 'title': 'Gardening basics', 'channel_handle': '@one'},
             {'video_id': 'bbbbbbbbbbb', 'title': 'Gardening examples', 'channel_handle': '@two'}], True)
         app.run()
+        next(x for x in app.checkbox if x.label == 'Use a quick limited scan instead of the full dataset').check().run()
         next(x for x in app.selectbox if x.label == 'Maximum comments to scan').set_value(10000).run()
         self.assertFalse(app.exception)
         next(x for x in app.text_input if x.label == 'Specific viewer need').set_value('Hands-on gardening examples')

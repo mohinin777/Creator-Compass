@@ -22,6 +22,7 @@ class AppTests(unittest.TestCase):
         app.session_state['video_catalog'] = VideoCatalog('train', [
             {'video_id': identity, 'title': 'Gardening basics', 'channel_handle': '@fixture'}], True)
         app.run()
+        next(x for x in app.checkbox if x.label == 'Use a quick limited scan instead of the full dataset').check().run()
         next(x for x in app.button if x.label == 'Sample real comments').click().run()
         self.assertFalse(app.exception)
         self.assertTrue(next(x for x in app.button if x.label == 'Classify sampled comments with LLM').disabled)
