@@ -41,21 +41,27 @@ def render_comment_analysis(chosen, catalog):
                               format_func=lambda identity: videos[identity]['title'],
                               max_selections=30, key=f'comment_videos_{topic}')
     quota = st.select_slider('Comments per video', options=[20, 30, 40, 50], value=20)
-    scan_limit = st.selectbox('Maximum comments to scan', [10_000, 100_000, 500_000, 1_500_000], index=1)
-    st.caption('Reads comments sequentially and retains the first usable comments per selected video. This is a biased prefix sample, not a random sample. A scan may find few or no comments for later videos. Larger scans can be slow; only bounded samples are saved locally for reuse, keyed by dataset revision. No comments are sent to an LLM while sampling.')
+    limited = st.checkbox('Use a quick limited scan instead of the full dataset', value=False)
+    scan_limit = st.selectbox('Maximum comments to scan', [10_000, 100_000, 500_000, 1_500_000], index=1) if limited else None
+    st.caption('Default: scan the entire comments split once and build a local index by video ID. Later requests reuse it. The first scan may take several minutes and use substantial disk space. Displayed/reviewed comments remain a bounded, biased prefix per video, not a random sample. No comments go to an LLM during indexing or sampling.')
     context = (topic, tuple(sorted(selected)), quota, scan_limit)
     st.session_state.active_comment_context = context
     if st.button('Sample real comments', disabled=not selected):
-        with st.spinner('Scanning the selected dataset for comment evidence…'):
+        with st.spinner('Preparing comment evidence (the first full index can take several minutes)…'):
+            progress = st.empty()
             try:
-                sample = load_comment_sample(selected, quota, scan_limit,
-                    cache_dir=str(Path(__file__).resolve().parents[1] / '.cache' / 'comment_samples'))
+                kwargs = {'cache_dir': str(Path(__file__).resolve().parents[1] / '.cache' / 'comment_samples')}
+                if scan_limit is None:
+                    kwargs['progress'] = lambda rows: progress.caption(f'Indexed {rows:,} dataset rows…')
+                sample = load_comment_sample(selected, quota, scan_limit, **kwargs)
                 st.session_state.comment_bundle = {'context': context, 'sample': sample}
                 st.session_state.pop('comment_error', None)
                 st.session_state.pop('classification_error', None)
             except Exception as exc:
                 st.session_state.pop('comment_bundle', None)
                 st.session_state.comment_error = f'Comment sampling failed ({type(exc).__name__}). Check dataset access and retry. No fallback comments were loaded.'
+            finally:
+                progress.empty()
     if st.session_state.get('comment_error'):
         st.error(st.session_state.comment_error)
     bundle = st.session_state.get('comment_bundle')
@@ -63,11 +69,14 @@ def render_comment_analysis(chosen, catalog):
         st.info('Sample comments for these settings before analysis. Previous samples are not used for changed topics or settings.')
         return
     sample = bundle['sample']
-    st.write(f'Retained {len(sample.records)} comments after scanning {sample.scanned:,} records. Stop reason: {sample.stop_reason}.')
+    if sample.max_scan is None:
+        st.write(f'Retained {len(sample.records)} comments from a complete index of {sample.scanned:,} source rows. The index is reused for subsequent selections.')
+    else:
+        st.write(f'Retained {len(sample.records)} comments after scanning {sample.scanned:,} records. Stop reason: {sample.stop_reason}.')
     st.caption(f'Dataset revision: {sample.revision} · comments split: {sample.split}')
     st.dataframe(pd.DataFrame(sample.coverage()), hide_index=True)
     if any(row['sampled_comments'] < quota for row in sample.coverage()):
-        st.warning('Some videos have fewer comments than requested in this scan. Missing samples are unknown coverage, not evidence of absent viewer needs.')
+        st.warning('Some videos have fewer comments than requested in the indexed split or limited scan. This is not evidence of absent viewer needs.')
     if not sample.records:
         return
     with st.expander('Inspect original sampled comments and sources', expanded=True):

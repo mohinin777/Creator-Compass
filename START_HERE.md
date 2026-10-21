@@ -36,7 +36,9 @@ If you use a restricted network, see README.md for dataset host details.
 1. Save a creator profile. Resume text is optional and manually reviewed.
 2. Select/edit/add topics and confirm them.
 3. In Creator discovery, load the real video catalog and inspect matches.
-4. In Comment analysis, select matching videos and sample comments. Review
+4. In Comment analysis, select matching videos and sample comments. The first
+   request scans the full comments split and creates a reusable local index;
+   allow a few minutes and enough free disk space. Review
    5–10 comments at first using Manual categorization / review. Choose a
    category for every displayed row and paste exact quotes for requests.
 5. In Recommendations, group one specific need only if reviewed requests
@@ -50,8 +52,8 @@ requires your own paid OpenAI API access through LLM_API_KEY2. Do not put
 credentials in source files or share them in chat. No credentials are bundled.
 
 Hypotheses and review state live in your browser session. Use the JSON download
-in Recommendations to keep your evidence/scorecard. Bounded raw comment samples
+in Recommendations to keep your evidence/scorecard. The full comment index and bounded samples
 are cached locally in .cache/comment_samples; delete that directory to remove
-them. Scores are transparent heuristics, not predictions of channel success.
+them. Indexing and manual review do not consume paid LLM tokens. Scores are transparent heuristics, not predictions of channel success.
 
 See README.md for formulas, limitations, and test instructions.

@@ -161,27 +161,38 @@ these are lexical results, not a topic-coverage audit.
 
 Open **4 · Comment analysis** after discovery. Choose a confirmed topic and up to
 30 of its matching videos (first 10 selected initially), then sample 20–50 comments
-per video. The default scan examines at most 100,000 source rows; choose a smaller
-or larger bound explicitly, up to 1,500,000. It stops early when every target is
-filled. The compressed stream is read sequentially, so later videos may have no
-comments within a bounded scan. Network transfer may exceed materialized rows.
+per video. **The default scans the entire comments split once**, without the old
+100,000-row cutoff or stopping when the first video's sample fills. The app streams
+the selected dataset through `datasets` and builds a local SQLite index by video ID.
+The progress message reports indexed source rows. The first build may take minutes
+and substantial disk space; later video selections query the same index directly.
 
-The sampler retains the first usable comments per video, filters duplicate IDs,
-and reports scanned rows, stop reason, and per-video sample counts. This is a
-biased prefix sample, not random or representative. A zero count means no usable
-comments were found within that scan, not an absence of audience needs. Original
-text, IDs, timestamps, and recorded engagement fields remain visible with source
-links constructed from observed video/comment IDs. No author hashes are retained
-in this cache.
+A **quick limited scan** checkbox remains available explicitly for development.
+Its scan bound defaults to 100,000 rows and can be changed to 1,500,000. In this
+optional mode, later videos can still be missed. Full indexing has no row cutoff
+and completes only when the selected split is exhausted. It scans the first
+available split (currently `train`); it is not a search of all YouTube.
 
-Only bounded evidence samples are saved to ignored `.cache/comment_samples/`
-JSON files for reuse. Keys include the actual dataset commit, selected video IDs,
-per-video limit, scan limit, and cache schema version. Dataset content is pinned
-to that commit while sampling. This avoids rescanning for identical parameters,
-but a larger scan or different selection can require another scan. The full
-comment corpus is not written to a local index. Delete these local cache files
-to remove stored samples; respect the dataset's reuse conditions. Profiles,
-resume text, and review/classification state are not written to this cache.
+Full indexing improves dataset coverage, not topic-matching semantics: relevant
+videos still come from their title words, and retrieved comments belong to those
+video IDs. Comment text is not semantically searched against your topic. The
+retained 20–50 comments per video remain a biased collection-order prefix, not a
+random sample. Building the full index does not send comments to an LLM.
+
+The complete index and optional bounded sample files are stored under ignored
+`.cache/comment_samples/`. Index filenames include a hash of the dataset commit
+and schema version. Only a fully built database is published; interrupted builds
+leave no reusable partial index. A new dataset commit builds a separate index.
+Queries use video IDs as bound SQL parameters and return only the requested
+comments, so the full corpus is never materialized in application memory.
+
+The index stores comment/video IDs, text, timestamps and recorded engagement
+fields; author hashes, profiles, resume text and review state are not stored in
+it. Duplicate comment IDs and unusable records are excluded. Original source
+rows scanned, completion status and per-video retained counts are displayed.
+Delete `.cache/comment_samples/` to remove the index and sample caches. Respect
+the selected dataset's license and reuse conditions; never commit these data files.
+Source links are constructed from observed video/comment IDs.
 
 Select up to 100 retained comments for classification/review. **Manual review**
 works without credentials: choose a category for every row and paste an exact
@@ -229,9 +240,15 @@ implemented yet. Results are scoped to the confirmed topic, selected videos,
 sample settings and classification subset; changed settings require a new sample
 or classification before summaries appear.
 
-Live checks retained 20 actual comments for the first observed video and verified
-the `video_id` join and an identical cache reload. This validates the sampling
-path, not coverage across all matched videos or model classification quality.
+Earlier checks verified real bounded samples, ID joins and cache reuse. Full-index
+tests additionally verify finding comments beyond row 100,000, reusing the index
+for different video selections, commit invalidation and interrupted-build cleanup.
+Live validation exhausted **1,345,353 source rows** in about 106 seconds,
+building a roughly 536 MiB local index in this environment. The two previously
+missed AI video matches each returned 20 comments. Repeating their indexed
+retrieval took about 0.12 seconds. A live Streamlit default-mode check returned
+200 comments across ten selected matching videos. Timings vary by machine.
+These checks do not establish model classification quality.
 
 ## Channel ideas and scorecard
 
@@ -289,8 +306,8 @@ No API purchase is needed to exercise the workflow:
 6. Group a specific need only when source requests support it across two videos.
 7. Compare supported channel ideas with the scorecard and download the report.
 
-Sparse topics and samples may correctly stop at insufficient evidence. Increase
-the scan bound or select other genuinely relevant videos; do not convert absence
+Sparse topics and samples may correctly stop at insufficient evidence. Use full indexing
+or select other genuinely relevant videos; do not convert absence
 of sampled evidence into a market claim. Live sampling validated 20 comments each
 from two observed AI-title matches after scanning 6,101 source rows. A separate
 pair had no comments within the first 100,000 scanned rows, and the app correctly
