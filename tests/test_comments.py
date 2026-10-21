@@ -67,7 +67,7 @@ class CommentTests(unittest.TestCase):
         self.assertEqual(summary['distinct_videos'], 2)
         self.assertEqual(summary['evidence'][0]['video_id'], A)
 
-    @patch.dict(os.environ, {'LLM_API_KEY2': 'test-only-key', 'LLM_MODEL': 'test-model', 'LLM_BASE_URL': 'https://api.openai.com/v1'})
+    @patch.dict(os.environ, {'LLM_API_KEY2': 'test-only-key', 'LLM_MODEL': 'test-model', 'LLM_BASE_URL': 'https://untrusted.invalid/v1'})
     @patch('creator_compass.classification.urlopen')
     def test_llm_request_validates_output_without_live_calls(self, urlopen):
         response = {'choices': [{'message': {'content': json.dumps({'results': [
@@ -76,6 +76,7 @@ class CommentTests(unittest.TestCase):
         urlopen.return_value.__enter__.return_value = io.StringIO(json.dumps(response))
         rows = classify_comments([comment('c1')])
         self.assertEqual(rows[0]['quote'], 'tutorial')
+        self.assertEqual(urlopen.call_args.args[0].full_url, 'https://api.openai.com/v1/chat/completions')
         payload = json.loads(urlopen.call_args.args[0].data)
         self.assertEqual(payload['response_format']['type'], 'json_schema')
         self.assertEqual(payload['model'], 'test-model')
@@ -93,3 +94,35 @@ class CommentTests(unittest.TestCase):
             classify_comments([comment('c1')])
         self.assertNotIn('test-only-key', str(caught.exception))
         self.assertNotIn('sensitive', str(caught.exception))
+
+
+class RedirectTests(unittest.TestCase):
+    def test_redirect_does_not_receive_authorization(self):
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        from threading import Thread
+        from urllib.request import Request
+        from urllib.error import HTTPError
+        from creator_compass.classification import urlopen
+        visited = []
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                visited.append(self.path)
+                self.send_response(302)
+                self.send_header('Location', '/credential-recipient')
+                self.end_headers()
+            def log_message(self, *args):
+                pass
+        server = HTTPServer(('127.0.0.1', 0), Handler)
+        worker = Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            request = Request(f'http://127.0.0.1:{server.server_port}/original',
+                              headers={'Authorization': 'Bearer test-only-key'})
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(request, timeout=5)
+            self.assertEqual(caught.exception.code, 302)
+            self.assertEqual(visited, ['/original'])
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=5)

@@ -195,11 +195,10 @@ classification task. Configure the credential securely; never enter it in chat
 or commit it to a file:
 
 - `LLM_API_KEY2`: provider API credential; required for the LLM button.
-- `LLM_BASE_URL`: defaults to `https://api.openai.com/v1`.
 - `LLM_MODEL`: defaults to `gpt-4.1-nano`.
 
-In cloud environment settings, a requirement for `LLM_API_KEY2`, the model/base URL
-suggestions, and the `api.openai.com` destination have been saved as a draft.
+In cloud environment settings, a requirement for `LLM_API_KEY2`, the model
+suggestion, and the `api.openai.com` destination have been saved as a draft.
 Enter the key securely, review/save the configuration, and publish/apply it as
 required by the environment UI. A draft save does not supply credentials or
 prove a live model call works. A later live test reached the provider but was
@@ -211,8 +210,10 @@ tests cover request/response handling and evidence validation.
 Classification runs only on an explicit button click and may incur API charges.
 Each request sends at most 25 comment IDs/texts, capped at 4,000 characters per
 comment, and uses a strict JSON schema. The profile/resume is never included.
-Provider overrides must support OpenAI-compatible Chat Completions and strict
-JSON-schema outputs. HTTPS verification remains enabled. There are no automatic
+Requests go only to the fixed `https://api.openai.com/v1/chat/completions`
+endpoint; configurable destinations have been removed and redirects are blocked
+to prevent forwarding credentials. Model overrides must support strict JSON-schema
+outputs. HTTPS verification remains enabled. There are no automatic
 retries after model errors, and partial results are not accepted; earlier
 successful requests in a failed multi-batch operation may still incur charges.
 
